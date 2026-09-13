@@ -1,0 +1,6 @@
+{
+  "name": "GanaPro",
+  "description": "Plataforma de encuestas generadas con IA, tareas remuneradas por niveles, sistema de referidos y sincronización con Google Sheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
