@@ -7,7 +7,9 @@ import {
   Receipt,
   CheckCircle2,
   Clock,
-  Wallet
+  Wallet,
+  KeyRound,
+  ShieldCheck
 } from 'lucide-react';
 
 interface WithdrawalsViewProps {
@@ -22,8 +24,9 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
   onErrorToast
 }) => {
   const [amount, setAmount] = useState<number | ''>('');
-  const [method, setMethod] = useState<PaymentMethod>(currentUser.paymentMethod || 'Nequi');
-  const [account, setAccount] = useState<string>('');
+  // Único método de destino autorizado: Llave Bre-B (Llave de Breve)
+  const method: PaymentMethod = 'Llave Bre-B';
+  const [account, setAccount] = useState<string>(currentUser.phone || '');
 
   const handleMax = () => {
     if (currentUser.balance >= 10000) {
@@ -48,13 +51,12 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
     }
 
     if (!account.trim()) {
-      onErrorToast('Ingresa tu número de cuenta, teléfono Nequi/Daviplata o correo PayPal');
+      onErrorToast('Ingresa tu Llave Bre-B (número de celular, cédula o correo registrado)');
       return;
     }
 
     onWithdraw(numAmount, method, account.trim());
     setAmount('');
-    setAccount('');
   };
 
   return (
@@ -68,7 +70,7 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
               <span>Solicitud de Retiro</span>
             </h3>
             <p className="text-xs text-slate-500">
-              Retira tus ganancias directamente a tu cuenta bancaria o billetera digital favorita.
+              Retira tus ganancias en segundos a través de tu Llave Bre-B (Llave de Breve).
             </p>
           </div>
 
@@ -111,34 +113,67 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
               </p>
             </div>
 
+            {/* Único Método de Destino: Llave Bre-B (Llave de Breve) */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Método de Destino
-              </label>
-              <select
-                value={method}
-                onChange={(e) => setMethod(e.target.value as PaymentMethod)}
-                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-800 font-medium"
-              >
-                <option value="Nequi">Nequi (Colombia)</option>
-                <option value="Daviplata">Daviplata (Colombia)</option>
-                <option value="Bancolombia">Bancolombia / Ahorros</option>
-                <option value="PayPal">PayPal (Internacional)</option>
-              </select>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase">
+                  Método de Destino Único
+                </label>
+                <span className="text-[10px] font-extrabold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Exclusivo Bre-B</span>
+                </span>
+              </div>
+
+              <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/90 rounded-2xl flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <KeyRound className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-black text-slate-900 text-sm">
+                      Llave Bre-B
+                    </span>
+                    <span className="text-[11px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-md border border-emerald-200 shadow-2xs">
+                      Llave de Breve
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                    Sistema de pagos inmediatos del Banco de la República. La transferencia llega en segundos directamente al banco o billetera digital que tengas asociado a tu Llave.
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Número de Cuenta / Teléfono / Correo
-              </label>
-              <input
-                type="text"
-                required
-                value={account}
-                onChange={(e) => setAccount(e.target.value)}
-                placeholder="Ej: 3001234567 o usuario@paypal.com"
-                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900"
-              />
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-700 uppercase">
+                  Tu Llave Bre-B (Breve)
+                </label>
+                {currentUser.phone && account !== currentUser.phone && (
+                  <button
+                    type="button"
+                    onClick={() => setAccount(currentUser.phone || '')}
+                    className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                  >
+                    Usar mi teléfono
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <KeyRound className="absolute left-3.5 top-3 text-slate-400 w-4 h-4" />
+                <input
+                  type="text"
+                  required
+                  value={account}
+                  onChange={(e) => setAccount(e.target.value)}
+                  placeholder="Número de celular, Cédula o Correo registrado"
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-900 font-medium"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Ingresa el identificador (celular, documento o email) registrado en tu entidad financiera como Llave Bre-B.
+              </p>
             </div>
 
             <button
@@ -146,7 +181,7 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition-all text-xs sm:text-sm flex items-center justify-center gap-2 cursor-pointer"
             >
               <Send className="w-4 h-4" />
-              <span>Solicitar Transferencia</span>
+              <span>Solicitar Transferencia por Llave Bre-B</span>
             </button>
           </form>
         </div>
@@ -180,7 +215,14 @@ export const WithdrawalsView: React.FC<WithdrawalsViewProps> = ({
                     return (
                       <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-3.5 px-3">
-                          <div className="font-bold text-slate-800">{item.type}</div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-slate-800">{item.type}</span>
+                            {item.type === 'Retiro' && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md">
+                                Llave Bre-B
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[11px] text-slate-400 truncate max-w-xs mt-0.5">
                             {item.description}
                           </div>

@@ -24,7 +24,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister }) =
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [regPaymentMethod, setRegPaymentMethod] = useState<PaymentMethod>('Nequi');
+  const [regPaymentMethod, setRegPaymentMethod] = useState<PaymentMethod>('Llave Bre-B');
   const [regReferralCode, setRegReferralCode] = useState('');
 
   // Auto-detect referral code from URL
@@ -61,6 +61,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister }) =
     setActiveTab('login');
     setLoginEmail('admin@ganapro.com');
     setLoginPassword('admin');
+  };
+
+  const fillUser1Credentials = () => {
+    setActiveTab('login');
+    setLoginEmail('usuario1@ganapro.com');
+    setLoginPassword('1234');
+  };
+
+  const fillUser5Credentials = () => {
+    setActiveTab('login');
+    setLoginEmail('usuario5@ganapro.com');
+    setLoginPassword('1234');
+  };
+
+  const fillUser4Credentials = () => {
+    setActiveTab('login');
+    setLoginEmail('usuario4@ganapro.com');
+    setLoginPassword('1234');
   };
 
   return (
@@ -202,18 +220,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister }) =
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                Método de Pago Preferido
+                Método de Retiro Predeterminado
               </label>
-              <select
-                value={regPaymentMethod}
-                onChange={(e) => setRegPaymentMethod(e.target.value as PaymentMethod)}
-                className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm text-slate-800"
-              >
-                <option value="Nequi">Nequi</option>
-                <option value="Daviplata">Daviplata</option>
-                <option value="Bancolombia">Transferencia Bancaria (Bancolombia)</option>
-                <option value="PayPal">PayPal</option>
-              </select>
+              <div className="w-full px-3.5 py-2.5 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs sm:text-sm font-semibold text-emerald-900 flex items-center justify-between">
+                <span>Llave Bre-B (Llave de Breve)</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-200 text-emerald-800 rounded-md">
+                  Inmediato
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Recibirás tus retiros directamente a través del sistema interoperable Bre-B.
+              </p>
             </div>
 
             <div>
@@ -246,24 +263,51 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin, onRegister }) =
         )}
 
         <div className="mt-6 pt-4 border-t border-slate-200 space-y-3 text-center">
-          {/* Admin Credentials Quick Hint */}
-          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs text-amber-900 flex flex-col gap-1.5">
+          {/* Admin and Demo Users Credentials Quick Hint */}
+          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs text-amber-900 flex flex-col gap-2">
             <div className="flex items-center justify-between font-bold">
               <span className="flex items-center gap-1.5">
                 <KeyRound className="w-3.5 h-3.5 text-amber-700" />
-                Cuenta Administrador Preconfigurada:
+                Cuentas de Prueba Vinculadas a Google Sheets:
               </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px]">
+              <button
+                type="button"
+                onClick={fillUser4Credentials}
+                className="p-1.5 bg-amber-100/80 hover:bg-amber-100 rounded border border-amber-300 text-left cursor-pointer transition-colors shadow-2xs"
+              >
+                <div className="font-bold text-amber-900">Usuario 4 (Nivel 1)</div>
+                <div className="text-[10px] text-slate-500">Prueba Ascenso</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={fillUser1Credentials}
+                className="p-1.5 bg-white/90 hover:bg-white rounded border border-amber-200 text-left cursor-pointer transition-colors shadow-2xs"
+              >
+                <div className="font-bold text-emerald-800">Usuario 1 (Nivel 2)</div>
+                <div className="text-[10px] text-slate-500">$80k Sheets</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={fillUser5Credentials}
+                className="p-1.5 bg-white/90 hover:bg-white rounded border border-amber-200 text-left cursor-pointer transition-colors shadow-2xs"
+              >
+                <div className="font-bold text-indigo-800">Usuario 5 (Nivel 3)</div>
+                <div className="text-[10px] text-slate-500">$150k Sheets</div>
+              </button>
+
               <button
                 type="button"
                 onClick={fillAdminCredentials}
-                className="text-[11px] underline font-bold text-amber-800 hover:text-amber-950 cursor-pointer"
+                className="p-1.5 bg-white/90 hover:bg-white rounded border border-amber-200 text-left cursor-pointer transition-colors shadow-2xs"
               >
-                Autocompletar
+                <div className="font-bold text-slate-900">Admin (Nivel 4)</div>
+                <div className="text-[10px] text-slate-500">admin@ganapro</div>
               </button>
-            </div>
-            <div className="font-mono text-[11px] bg-white/80 p-1.5 rounded-md border border-amber-100 flex flex-wrap justify-between gap-1 text-slate-800">
-              <span>Email: <strong>admin@ganapro.com</strong></span>
-              <span>Clave: <strong>admin</strong></span>
             </div>
           </div>
 

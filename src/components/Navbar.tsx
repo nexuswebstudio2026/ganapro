@@ -6,9 +6,19 @@ interface NavbarProps {
   currentUser: User;
   onToggleSidebar: () => void;
   onLogout: () => void;
+  onSyncSheets?: () => void;
+  isSyncingSheets?: boolean;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ currentUser, onToggleSidebar, onLogout }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  currentUser,
+  onToggleSidebar,
+  onLogout,
+  onSyncSheets,
+  isSyncingSheets = false
+}) => {
+  const acumulado = currentUser.acumulado !== undefined ? currentUser.acumulado : currentUser.balance;
+
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -36,17 +46,23 @@ export const Navbar: React.FC<NavbarProps> = ({ currentUser, onToggleSidebar, on
             </div>
           </div>
 
-          <div className="flex items-center gap-3 sm:gap-6">
-            <div className="bg-slate-900 text-white px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl flex items-center gap-3 shadow-md border border-slate-800">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+          <div className="flex items-center gap-2.5 sm:gap-4">
+            {/* Saldo Acumulado Vinculado a Google Sheets */}
+            <div className="bg-slate-900 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl flex items-center gap-2.5 sm:gap-3 shadow-md border border-slate-800">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
                 <Coins className="w-4 h-4 text-emerald-400" />
               </div>
               <div>
-                <span className="block text-[10px] text-slate-400 font-medium uppercase tracking-wider leading-none">
-                  Saldo Acumulado
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="block text-[10px] text-slate-400 font-medium uppercase tracking-wider leading-none">
+                    Saldo Acumulado
+                  </span>
+                  <span className="text-[9px] bg-emerald-950 text-emerald-300 font-bold px-1.5 py-0.2 rounded border border-emerald-800/80 hidden sm:inline-block">
+                    Sheets
+                  </span>
+                </div>
                 <span className="text-sm sm:text-base font-extrabold text-emerald-400 leading-tight">
-                  ${currentUser.balance.toLocaleString('es-CO')} COP
+                  ${acumulado.toLocaleString('es-CO')} COP
                 </span>
               </div>
             </div>

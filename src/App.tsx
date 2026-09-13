@@ -9,10 +9,12 @@ import {
   SURVEY_REWARDS_BY_LEVEL,
   TASK_REWARDS_BY_LEVEL,
   REFERRAL_REWARD,
-  UserLevel
+  UserLevel,
+  NequiTransferProof,
+  WithdrawalRequest
 } from './types';
-import { DEFAULT_ADMIN, INITIAL_SURVEYS, INITIAL_TASKS } from './data/initialData';
-import { syncToGoogleSheets } from './utils/sheetsSync';
+import { DEFAULT_ADMIN, INITIAL_USERS, INITIAL_SURVEYS, INITIAL_TASKS, INITIAL_WITHDRAWAL_REQUESTS } from './data/initialData';
+import { syncToGoogleSheets, fetchUsersFromGoogleSheets, syncUserToGoogleSheets } from './utils/sheetsSync';
 
 import { ToastContainer } from './components/Toast';
 import { Navbar } from './components/Navbar';
@@ -25,6 +27,7 @@ import { ReferralsView } from './components/ReferralsView';
 import { WithdrawalsView } from './components/WithdrawalsView';
 import { SheetsView } from './components/SheetsView';
 import { AdminView } from './components/AdminView';
+import { AdminWithdrawalsView } from './components/AdminWithdrawalsView';
 
 export default function App() {
   const [users, setUsers] = useState<User[]>(() => {
@@ -32,24 +35,18 @@ export default function App() {
       const stored = localStorage.getItem('ganapro_users');
       if (stored) {
         const parsed: User[] = JSON.parse(stored);
-        // Ensure default admin exists and has updated level and referral fields
-        const adminIndex = parsed.findIndex((u) => u.email.toLowerCase() === DEFAULT_ADMIN.email.toLowerCase());
-        if (adminIndex === -1) {
-          parsed.unshift(DEFAULT_ADMIN);
-        } else {
-          parsed[adminIndex] = {
-            ...DEFAULT_ADMIN,
-            ...parsed[adminIndex],
-            level: parsed[adminIndex].level || 4,
-            referralCode: parsed[adminIndex].referralCode || 'GP-ADMIN',
-            referralCount: parsed[adminIndex].referralCount || 6,
-            referralEarnings: parsed[adminIndex].referralEarnings || 6000
-          };
-        }
-        // Ensure all users have level and referralCode
+        // Ensure initial preset users exist (admin, usuario1, usuario5)
+        INITIAL_USERS.forEach((preset) => {
+          const exists = parsed.some((u) => u.email.toLowerCase() === preset.email.toLowerCase());
+          if (!exists) {
+            parsed.push(preset);
+          }
+        });
+
         return parsed.map((u, i) => ({
           ...u,
           level: (u.level || 1) as UserLevel,
+          acumulado: u.acumulado !== undefined ? u.acumulado : u.balance || 0,
           referralCode: u.referralCode || `GP-${(u.name || 'USR').slice(0, 3).toUpperCase()}${100 + i}`,
           referralCount: u.referralCount || 0,
           referralEarnings: u.referralEarnings || 0
@@ -58,7 +55,7 @@ export default function App() {
     } catch (e) {
       console.warn('Error reading ganapro_users from localStorage', e);
     }
-    return [DEFAULT_ADMIN];
+    return INITIAL_USERS;
   });
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -69,6 +66,7 @@ export default function App() {
         return {
           ...parsed,
           level: (parsed.level || 1) as UserLevel,
+          acumulado: parsed.acumulado !== undefined ? parsed.acumulado : parsed.balance || 0,
           referralCode: parsed.referralCode || `GP-${(parsed.name || 'USR').slice(0, 3).toUpperCase()}${Date.now().toString().slice(-3)}`,
           referralCount: parsed.referralCount || 0,
           referralEarnings: parsed.referralEarnings || 0
@@ -94,6 +92,166 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<ViewTab>('dashboard');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [isSyncingSheets, setIsSyncingSheets] = useState(false);
+
+  const [withdrawalRequests, setWithdrawalRequests] = useState<WithdrawalRequest[]>(() => {
+    try {
+      const stored = localStorage.getItem('ganapro_withdrawal_requests');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      // ignore
+    }
+    return INITIAL_WITHDRAWAL_REQUESTS;
+  });
+
+  // Sync users with Google Sheets (Fetches latest data from Sheets GET endpoint)
+  const handleSyncSheets = async (silent = false) => {
+    const url = localStorage.getItem('ganapro_sheets_url');
+    if (!url || !url.startsWith('http')) {
+      if (!silent) {
+        addToast('Configura primero la URL de tu Web App en la pestaña Google Sheets.', 'info');
+      }
+      return;
+    }
+
+    setIsSyncingSheets(true);
+    try {
+      const res = await fetchUsersFromGoogleSheets();
+      if (res.success && res.users && res.users.length > 0) {
+        const nowStr = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+
+        setUsers((prevUsers) => {
+          const updated = [...prevUsers];
+          res.users!.forEach((sheetUser) => {
+            const email = (sheetUser.Email || '').toLowerCase().trim();
+            if (!email) return;
+
+            const idx = updated.findIndex((u) => u.email.toLowerCase().trim() === email);
+            const nequiPhone =
+              (sheetUser['Número de Nequi'] as string) ||
+              (sheetUser['Numero de Nequi'] as string) ||
+              (sheetUser.NumeroNequi as string) ||
+              (sheetUser.Telefono as string);
+
+            // En Saldo de Google Sheets se muestra el saldo acumulado de cada usuario
+            const sheetAcumulado = typeof sheetUser.Saldo === 'number'
+              ? sheetUser.Saldo
+              : typeof sheetUser.Acumulado === 'number'
+              ? sheetUser.Acumulado
+              : undefined;
+
+            const sheetLevel = typeof sheetUser.Nivel === 'number' && [1, 2, 3, 4].includes(sheetUser.Nivel)
+              ? (sheetUser.Nivel as UserLevel)
+              : undefined;
+
+            if (idx !== -1) {
+              const cur = updated[idx];
+              const effectiveAcumulado = sheetAcumulado !== undefined ? sheetAcumulado : (cur.acumulado !== undefined ? cur.acumulado : cur.balance);
+              updated[idx] = {
+                ...cur,
+                phone: nequiPhone || cur.phone,
+                balance: effectiveAcumulado,
+                acumulado: effectiveAcumulado,
+                level: sheetLevel !== undefined ? sheetLevel : cur.level,
+                lastSheetsSync: nowStr
+              };
+            } else {
+              // Add new user from Google Sheets
+              const effectiveAcumulado = sheetAcumulado !== undefined ? sheetAcumulado : 0;
+              const newUserFromSheet: User = {
+                id: 'sheet-' + Date.now() + Math.random().toString(36).substring(2, 5),
+                name: sheetUser.Nombre || email.split('@')[0],
+                email: email,
+                password: 'password123',
+                phone: nequiPhone || '312 000 0000',
+                paymentMethod: 'Llave Bre-B',
+                balance: effectiveAcumulado,
+                acumulado: effectiveAcumulado,
+                role: (sheetUser.Rol && sheetUser.Rol.toLowerCase().includes('admin')) ? 'admin' : 'usuario',
+                level: sheetLevel || 1,
+                referralCode: `GP-${email.slice(0, 3).toUpperCase()}99`,
+                referralCount: 0,
+                referralEarnings: 0,
+                surveysCompleted: [],
+                tasksCompleted: [],
+                withdrawn: 0,
+                lastSheetsSync: nowStr,
+                history: [
+                  {
+                    id: 'imp-' + Date.now(),
+                    type: 'Bono',
+                    description: 'Usuario importado desde Google Sheets',
+                    amount: effectiveAcumulado,
+                    date: new Date().toLocaleDateString('es-CO'),
+                    status: 'Acreditado'
+                  }
+                ]
+              };
+              updated.push(newUserFromSheet);
+            }
+          });
+          return updated;
+        });
+
+        // Keep active currentUser in sync with the sheet's new data
+        setCurrentUser((prev) => {
+          if (!prev) return null;
+          const match = res.users!.find(
+            (su) => (su.Email || '').toLowerCase().trim() === prev.email.toLowerCase().trim()
+          );
+          if (!match) return prev;
+
+          const nequiPhone =
+            (match['Número de Nequi'] as string) ||
+            (match['Numero de Nequi'] as string) ||
+            (match.NumeroNequi as string) ||
+            (match.Telefono as string);
+
+          const sheetAcumulado = typeof match.Saldo === 'number'
+            ? match.Saldo
+            : typeof match.Acumulado === 'number'
+            ? match.Acumulado
+            : prev.acumulado;
+
+          const sheetLevel = typeof match.Nivel === 'number' && [1, 2, 3, 4].includes(match.Nivel)
+            ? (match.Nivel as UserLevel)
+            : prev.level;
+
+          return {
+            ...prev,
+            phone: nequiPhone || prev.phone,
+            balance: sheetAcumulado,
+            acumulado: sheetAcumulado,
+            level: sheetLevel !== undefined ? sheetLevel : prev.level,
+            lastSheetsSync: nowStr
+          };
+        });
+
+        if (!silent) {
+          addToast('¡Datos vinculados desde Google Sheets actualizados correctamente!', 'success');
+        }
+      } else {
+        if (!silent) {
+          addToast(res.message || 'La hoja de cálculo respondió pero no contiene filas de usuarios aún.', 'info');
+        }
+      }
+    } catch (err) {
+      console.warn('Sync error:', err);
+      if (!silent) {
+        addToast('Error al conectar con Google Apps Script. Revisa que el script esté desplegado.', 'error');
+      }
+    } finally {
+      setIsSyncingSheets(false);
+    }
+  };
+
+  // Check and run background sync once on mount
+  useEffect(() => {
+    const url = localStorage.getItem('ganapro_sheets_url');
+    if (url && url.startsWith('http')) {
+      handleSyncSheets(true);
+    }
+  }, []);
 
   // Persist surveys when AI adds new ones
   useEffect(() => {
@@ -127,6 +285,15 @@ export default function App() {
       localStorage.removeItem('ganapro_current_user');
     }
   }, [currentUser]);
+
+  // Persist withdrawalRequests to localStorage whenever updated
+  useEffect(() => {
+    try {
+      localStorage.setItem('ganapro_withdrawal_requests', JSON.stringify(withdrawalRequests));
+    } catch (e) {
+      // ignore
+    }
+  }, [withdrawalRequests]);
 
   // Toast Helpers
   const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -182,6 +349,7 @@ export default function App() {
       password: data.password,
       paymentMethod: data.paymentMethod,
       balance: 0,
+      acumulado: 0,
       role: 'usuario',
       level: 1, // Start at Level 1
       referralCode: uniqueCode,
@@ -211,9 +379,11 @@ export default function App() {
         setUsers((prev) =>
           prev.map((u) => {
             if (u.id === referrer.id) {
-              return {
+              const curAcum = u.acumulado !== undefined ? u.acumulado : u.balance;
+              const updatedReferrer: User = {
                 ...u,
                 balance: u.balance + REFERRAL_REWARD,
+                acumulado: curAcum + REFERRAL_REWARD,
                 referralCount: (u.referralCount || 0) + 1,
                 referralEarnings: (u.referralEarnings || 0) + REFERRAL_REWARD,
                 history: [
@@ -228,6 +398,8 @@ export default function App() {
                   ...u.history
                 ]
               };
+              syncUserToGoogleSheets(updatedReferrer);
+              return updatedReferrer;
             }
             return u;
           })
@@ -290,6 +462,7 @@ export default function App() {
     };
 
     setCurrentUser(updated);
+    syncUserToGoogleSheets(updated);
     addToast(`¡Felicidades! Has subido a Nivel ${nextLevel}. Ahora tus encuestas pagan $${SURVEY_REWARDS_BY_LEVEL[nextLevel].toLocaleString('es-CO')} y tareas $${TASK_REWARDS_BY_LEVEL[nextLevel].toLocaleString('es-CO')} COP.`, 'success');
   };
 
@@ -302,12 +475,35 @@ export default function App() {
           if (currentUser && currentUser.id === userId) {
             setCurrentUser(updated);
           }
+          syncUserToGoogleSheets(updated);
           return updated;
         }
         return u;
       })
     );
-    addToast(`Nivel del usuario actualizado a Nivel ${newLevel}`, 'success');
+    addToast(`Nivel del usuario actualizado a Nivel ${newLevel} y transmitido a Google Sheets`, 'success');
+  };
+
+  // Update User Acumulado (Google Sheets linked balance)
+  const handleUpdateUserAcumulado = (userId: string | number, newAcumulado: number) => {
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === userId) {
+          const updated = {
+            ...u,
+            acumulado: newAcumulado,
+            lastSheetsSync: new Date().toLocaleTimeString('es-CO')
+          };
+          if (currentUser && currentUser.id === userId) {
+            setCurrentUser(updated);
+          }
+          syncUserToGoogleSheets(updated);
+          return updated;
+        }
+        return u;
+      })
+    );
+    addToast(`Saldo acumulado fijado en $${newAcumulado.toLocaleString('es-CO')} COP y transmitido a Google Sheets`, 'success');
   };
 
   // Add AI Survey to state
@@ -326,9 +522,14 @@ export default function App() {
       minute: '2-digit'
     });
 
+    const currentAcumulado = currentUser.acumulado !== undefined ? currentUser.acumulado : currentUser.balance;
+    const newAcumulado = currentAcumulado + reward;
+    const newBalance = currentUser.balance + reward;
+
     const updated: User = {
       ...currentUser,
-      balance: currentUser.balance + reward,
+      balance: newBalance,
+      acumulado: newAcumulado,
       surveysCompleted: [...currentUser.surveysCompleted, survey.id],
       history: [
         {
@@ -346,13 +547,14 @@ export default function App() {
     setCurrentUser(updated);
 
     // Sync to Google Sheets
+    syncUserToGoogleSheets(updated);
     syncToGoogleSheets({
       action: 'submitSurvey',
       userEmail: currentUser.email,
       surveyTitle: survey.title
     });
 
-    addToast(`¡Excelente! Has ganado $${reward.toLocaleString('es-CO')} COP correspondientes a tu Nivel ${userLevel}.`, 'success');
+    addToast(`¡Excelente! Has ganado $${reward.toLocaleString('es-CO')} COP correspondientes a tu Nivel ${userLevel}. Saldo acumulado actualizado.`, 'success');
   };
 
   // Task Completion Handler (Tiered)
@@ -366,9 +568,14 @@ export default function App() {
       minute: '2-digit'
     });
 
+    const currentAcumulado = currentUser.acumulado !== undefined ? currentUser.acumulado : currentUser.balance;
+    const newAcumulado = currentAcumulado + reward;
+    const newBalance = currentUser.balance + reward;
+
     const updated: User = {
       ...currentUser,
-      balance: currentUser.balance + reward,
+      balance: newBalance,
+      acumulado: newAcumulado,
       tasksCompleted: [...currentUser.tasksCompleted, task.id],
       history: [
         {
@@ -386,6 +593,7 @@ export default function App() {
     setCurrentUser(updated);
 
     // Sync to Google Sheets
+    syncUserToGoogleSheets(updated);
     syncToGoogleSheets({
       action: 'submitTask',
       userEmail: currentUser.email,
@@ -405,9 +613,14 @@ export default function App() {
       minute: '2-digit'
     });
 
+    const currentAcumulado = currentUser.acumulado !== undefined ? currentUser.acumulado : currentUser.balance;
+    const newAcumulado = currentAcumulado + REFERRAL_REWARD;
+    const newBalance = currentUser.balance + REFERRAL_REWARD;
+
     const updated: User = {
       ...currentUser,
-      balance: currentUser.balance + REFERRAL_REWARD,
+      balance: newBalance,
+      acumulado: newAcumulado,
       referralCount: (currentUser.referralCount || 0) + 1,
       referralEarnings: (currentUser.referralEarnings || 0) + REFERRAL_REWARD,
       history: [
@@ -424,6 +637,7 @@ export default function App() {
     };
 
     setCurrentUser(updated);
+    syncUserToGoogleSheets(updated);
     addToast(`¡Nuevo referido! ${friendName} se unió con tu código. Ganaste +$1.000 COP directos.`, 'success');
   };
 
@@ -454,6 +668,22 @@ export default function App() {
     };
 
     setCurrentUser(updated);
+    syncUserToGoogleSheets(updated);
+
+    // Record withdrawal request for admin dashboard
+    const newRequest: WithdrawalRequest = {
+      id: 'wd-req-' + Date.now(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      userEmail: currentUser.email,
+      userPhone: currentUser.phone,
+      amount,
+      method,
+      account,
+      date: nowStr,
+      status: 'Pendiente'
+    };
+    setWithdrawalRequests((prev) => [newRequest, ...prev]);
 
     // Sync to Google Sheets
     syncToGoogleSheets({
@@ -464,7 +694,63 @@ export default function App() {
       account
     });
 
-    addToast(`Solicitud de retiro por $${amount.toLocaleString('es-CO')} COP enviada correctamente.`, 'success');
+    addToast(`Solicitud de retiro por $${amount.toLocaleString('es-CO')} COP vía Llave Bre-B enviada correctamente.`, 'success');
+  };
+
+  // Admin action: Approve withdrawal request
+  const handleApproveWithdrawal = (requestId: string) => {
+    let approvedReq: WithdrawalRequest | undefined;
+    setWithdrawalRequests((prev) =>
+      prev.map((r) => {
+        if (r.id === requestId) {
+          approvedReq = { ...r, status: 'Aprobado' };
+          return approvedReq;
+        }
+        return r;
+      })
+    );
+
+    if (approvedReq) {
+      const targetUserEmail = approvedReq.userEmail;
+      setUsers((prev) =>
+        prev.map((u) => {
+          if (u.email.toLowerCase() === targetUserEmail.toLowerCase()) {
+            return {
+              ...u,
+              history: u.history.map((h) =>
+                h.type === 'Retiro' && h.status === 'Pendiente' ? { ...h, status: 'Aprobado' } : h
+              )
+            };
+          }
+          return u;
+        })
+      );
+
+      if (currentUser && currentUser.email.toLowerCase() === targetUserEmail.toLowerCase()) {
+        setCurrentUser((prev) => {
+          if (!prev) return null;
+          return {
+            ...prev,
+            history: prev.history.map((h) =>
+              h.type === 'Retiro' && h.status === 'Pendiente' ? { ...h, status: 'Aprobado' } : h
+            )
+          };
+        });
+      }
+
+      addToast(
+        `¡Retiro por $${approvedReq.amount.toLocaleString('es-CO')} COP para ${approvedReq.userName} aprobado con éxito!`,
+        'success'
+      );
+    }
+  };
+
+  // Admin action: Reject withdrawal request
+  const handleRejectWithdrawal = (requestId: string) => {
+    setWithdrawalRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, status: 'Rechazado' } : r))
+    );
+    addToast('Solicitud de retiro marcada como rechazada.', 'info');
   };
 
   // Admin action: Add bonus
@@ -477,9 +763,11 @@ export default function App() {
     setUsers((prev) =>
       prev.map((u) => {
         if (u.id === userId) {
+          const curAcum = u.acumulado !== undefined ? u.acumulado : u.balance;
           const updatedUser: User = {
             ...u,
             balance: u.balance + amount,
+            acumulado: curAcum + amount,
             history: [
               {
                 id: 'bon-' + Date.now(),
@@ -496,6 +784,7 @@ export default function App() {
           if (currentUser && currentUser.id === userId) {
             setCurrentUser(updatedUser);
           }
+          syncUserToGoogleSheets(updatedUser);
           return updatedUser;
         }
         return u;
@@ -503,6 +792,255 @@ export default function App() {
     );
 
     addToast(`Se han acreditado $${amount.toLocaleString('es-CO')} COP como bono especial.`, 'success');
+  };
+
+  // 4x1 Nequi Matrix: User uploads transfer proof to ascend to next level
+  const handleUploadTransferProof = (
+    senderId: string | number,
+    receiverId: string | number,
+    amount: number,
+    targetLevel: UserLevel,
+    referenceCode: string,
+    senderPhone?: string
+  ) => {
+    const nowStr = new Date().toLocaleDateString('es-CO', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const sender = users.find((u) => u.id === senderId) || currentUser;
+    const receiver = users.find((u) => u.id === receiverId);
+
+    if (!sender) return;
+
+    const proofObj: NequiTransferProof = {
+      id: 'tr-' + Date.now(),
+      senderId,
+      senderName: sender.name,
+      senderPhone: senderPhone || sender.phone || '312 000 0000',
+      receiverId,
+      receiverName: receiver ? receiver.name : 'Usuario Destino',
+      receiverPhone: receiver?.phone || '312 456 7890',
+      amount,
+      targetLevel,
+      referenceCode,
+      date: nowStr,
+      status: 'Verificado'
+    };
+
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === senderId) {
+          const sentList = u.nequiTransfersSent || [];
+          const updatedSender: User = {
+            ...u,
+            level: targetLevel,
+            phone: senderPhone || u.phone,
+            nequiTransfersSent: [proofObj, ...sentList],
+            history: [
+              {
+                id: 'asc-' + Date.now(),
+                type: 'Bono',
+                description: `Ascenso a Nivel ${targetLevel} por transferencia Nequi (Ref: ${referenceCode})`,
+                amount: 0,
+                date: nowStr,
+                status: 'Acreditado'
+              },
+              ...u.history
+            ]
+          };
+          if (currentUser && currentUser.id === senderId) {
+            setCurrentUser(updatedSender);
+          }
+          syncUserToGoogleSheets(updatedSender);
+          return updatedSender;
+        }
+
+        if (receiver && u.id === receiverId) {
+          const recvList = u.nequiTransfersReceived || [];
+          const curAcum = u.acumulado !== undefined ? u.acumulado : u.balance;
+          const updatedReceiver: User = {
+            ...u,
+            balance: u.balance + amount,
+            acumulado: curAcum + amount,
+            nequiTransfersReceived: [proofObj, ...recvList],
+            history: [
+              {
+                id: 'rec-' + Date.now(),
+                type: 'Bono',
+                description: `Transferencia Nequi recibida de ${sender.name} (+ $${amount.toLocaleString('es-CO')} COP)`,
+                amount,
+                date: nowStr,
+                status: 'Acreditado'
+              },
+              ...u.history
+            ]
+          };
+          if (currentUser && currentUser.id === receiverId) {
+            setCurrentUser(updatedReceiver);
+          }
+          syncUserToGoogleSheets(updatedReceiver);
+          return updatedReceiver;
+        }
+
+        return u;
+      })
+    );
+
+    addToast(
+      `¡Comprobante verificado con éxito! Has ascendido automáticamente a Nivel ${targetLevel}. Tus comisiones se han multiplicado.`,
+      'success'
+    );
+  };
+
+  // Simulate an incoming transfer for Level 2 or Level 3
+  const handleSimulateIncomingTransfer = (receiverId: string | number, level: UserLevel) => {
+    const senderNames = ['Daniela Morales', 'Sebastián Ruiz', 'Camila Restrepo', 'Andrés Vargas', 'Valentina Gómez', 'Mateo Ramírez'];
+    const randomName = senderNames[Math.floor(Math.random() * senderNames.length)];
+    const amount = level === 2 ? 10000 : level === 3 ? 20000 : 50000;
+    const nowStr = new Date().toLocaleDateString('es-CO', { hour: '2-digit', minute: '2-digit' });
+    const randomRef = 'M' + Math.floor(100000 + Math.random() * 900000);
+    const randomPhone = `31${Math.floor(10 + Math.random() * 89)} ${Math.floor(100 + Math.random() * 900)} ${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const receiver = users.find((u) => u.id === receiverId) || currentUser;
+    if (!receiver) return;
+
+    const proofObj: NequiTransferProof = {
+      id: 'sim-' + Date.now(),
+      senderId: 'sim-' + Math.floor(Math.random() * 9999),
+      senderName: randomName,
+      senderPhone: randomPhone,
+      receiverId,
+      receiverName: receiver.name,
+      receiverPhone: receiver.phone || '312 456 7890',
+      amount,
+      targetLevel: level,
+      referenceCode: randomRef,
+      date: nowStr,
+      status: 'Verificado'
+    };
+
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === receiverId) {
+          const recvList = u.nequiTransfersReceived || [];
+          const curAcum = u.acumulado !== undefined ? u.acumulado : u.balance;
+          const updated: User = {
+            ...u,
+            balance: u.balance + amount,
+            acumulado: curAcum + amount,
+            nequiTransfersReceived: [proofObj, ...recvList],
+            history: [
+              {
+                id: 'rec-' + Date.now(),
+                type: 'Bono',
+                description: `Transferencia Nequi recibida de ${randomName} (+ $${amount.toLocaleString('es-CO')} COP)`,
+                amount,
+                date: nowStr,
+                status: 'Acreditado'
+              },
+              ...u.history
+            ]
+          };
+          if (currentUser && currentUser.id === receiverId) {
+            setCurrentUser(updated);
+          }
+          syncUserToGoogleSheets(updated);
+          return updated;
+        }
+        return u;
+      })
+    );
+
+    addToast(
+      `¡Transferencia recibida! ${randomName} te envió $${amount.toLocaleString('es-CO')} COP vía Nequi (Ref: ${randomRef}). Tu acumulado ha aumentado.`,
+      'success'
+    );
+  };
+
+  // Complete all 4 slots for the current level (4 x 10k = 40k for L2, 4 x 20k = 80k for L3)
+  const handleCompleteFourSlots = (receiverId: string | number, level: UserLevel) => {
+    const receiver = users.find((u) => u.id === receiverId) || currentUser;
+    if (!receiver) return;
+
+    const amountPerSlot = level === 2 ? 10000 : level === 3 ? 20000 : 50000;
+    const totalAmount = amountPerSlot * 4;
+    const nowStr = new Date().toLocaleDateString('es-CO', { hour: '2-digit', minute: '2-digit' });
+
+    const simSenders = [
+      { name: 'Daniela Morales', phone: '310 445 6789' },
+      { name: 'Sebastián Ruiz', phone: '315 221 8890' },
+      { name: 'Camila Restrepo', phone: '318 990 1234' },
+      { name: 'Andrés Vargas', phone: '312 667 4321' }
+    ];
+
+    const newProofs: NequiTransferProof[] = simSenders.map((s, idx) => ({
+      id: `sim-slot-${Date.now()}-${idx}`,
+      senderId: `sim-user-${idx + 1}`,
+      senderName: s.name,
+      senderPhone: s.phone,
+      receiverId,
+      receiverName: receiver.name,
+      receiverPhone: receiver.phone || '312 456 7890',
+      amount: amountPerSlot,
+      targetLevel: level,
+      referenceCode: 'M' + Math.floor(100000 + Math.random() * 900000),
+      date: nowStr,
+      status: 'Verificado'
+    }));
+
+    setUsers((prev) =>
+      prev.map((u) => {
+        if (u.id === receiverId) {
+          const recvList = u.nequiTransfersReceived || [];
+          const curAcum = u.acumulado !== undefined ? u.acumulado : u.balance;
+          const updated: User = {
+            ...u,
+            balance: u.balance + totalAmount,
+            acumulado: curAcum + totalAmount,
+            nequiTransfersReceived: [...newProofs, ...recvList],
+            history: [
+              {
+                id: 'mat-' + Date.now(),
+                type: 'Bono',
+                description: `Ciclo 4x1 completado: Recibidos 4 envíos (+ $${totalAmount.toLocaleString('es-CO')} COP)`,
+                amount: totalAmount,
+                date: nowStr,
+                status: 'Acreditado'
+              },
+              ...u.history
+            ]
+          };
+          if (currentUser && currentUser.id === receiverId) {
+            setCurrentUser(updated);
+          }
+          syncUserToGoogleSheets(updated);
+          return updated;
+        }
+        return u;
+      })
+    );
+
+    addToast(
+      `¡Los 4 usuarios han sido completados! Recibiste $${totalAmount.toLocaleString('es-CO')} COP en total. Ya estás listo para ascender al siguiente nivel.`,
+      'success'
+    );
+  };
+
+  // Switch current user for easy testing of levels
+  const handleSwitchUser = (selectedUser: User) => {
+    setCurrentUser(selectedUser);
+    addToast(`Cambiado a perfil: ${selectedUser.name} (Nivel ${selectedUser.level || 1})`, 'info');
+  };
+
+  // Update phone number
+  const handleUpdatePhone = (newPhone: string) => {
+    if (!currentUser) return;
+    const updated: User = { ...currentUser, phone: newPhone };
+    setCurrentUser(updated);
+    setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    syncUserToGoogleSheets(updated);
+    addToast(`Número Nequi actualizado a ${newPhone}`, 'success');
   };
 
   // If not logged in, show AuthScreen
@@ -524,6 +1062,8 @@ export default function App() {
         currentUser={currentUser}
         onToggleSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
         onLogout={handleLogout}
+        onSyncSheets={handleSyncSheets}
+        isSyncingSheets={isSyncingSheets}
       />
 
       {/* Main Container */}
@@ -535,6 +1075,8 @@ export default function App() {
           currentUser={currentUser}
           isOpenMobile={isMobileSidebarOpen}
           onCloseMobile={() => setIsMobileSidebarOpen(false)}
+          withdrawalRequests={withdrawalRequests}
+          onApproveWithdrawal={handleApproveWithdrawal}
         />
 
         {/* Dynamic Main View */}
@@ -544,6 +1086,8 @@ export default function App() {
               currentUser={currentUser}
               onNavigate={(tab) => setCurrentTab(tab)}
               onUpgradeLevel={handleUpgradeLevel}
+              onSyncSheets={handleSyncSheets}
+              isSyncingSheets={isSyncingSheets}
             />
           )}
 
@@ -562,7 +1106,14 @@ export default function App() {
             <TasksView
               tasks={tasks}
               currentUser={currentUser}
+              users={users}
               onCompleteTask={handleCompleteTask}
+              onUploadTransferProof={handleUploadTransferProof}
+              onSimulateIncomingTransfer={handleSimulateIncomingTransfer}
+              onCompleteFourSlots={handleCompleteFourSlots}
+              onSwitchUser={handleSwitchUser}
+              onUpdatePhone={handleUpdatePhone}
+              onSuccessToast={(msg) => addToast(msg, 'success')}
               onErrorToast={(msg) => addToast(msg, 'error')}
             />
           )}
@@ -585,8 +1136,21 @@ export default function App() {
 
           {currentTab === 'sheets' && (
             <SheetsView
+              users={users}
               onSuccessToast={(msg) => addToast(msg, 'success')}
               onErrorToast={(msg) => addToast(msg, 'error')}
+              onSyncSheets={handleSyncSheets}
+              isSyncingSheets={isSyncingSheets}
+              onUpdateUserAcumulado={handleUpdateUserAcumulado}
+            />
+          )}
+
+          {currentTab === 'solicitudes' && currentUser.role === 'admin' && (
+            <AdminWithdrawalsView
+              withdrawalRequests={withdrawalRequests}
+              onApproveWithdrawal={handleApproveWithdrawal}
+              onRejectWithdrawal={handleRejectWithdrawal}
+              onSuccessToast={(msg) => addToast(msg, 'success')}
             />
           )}
 
@@ -596,6 +1160,16 @@ export default function App() {
               currentUser={currentUser}
               onAddBonusToUser={handleAddBonusToUser}
               onChangeUserLevel={handleChangeUserLevel}
+              onUpdateUserAcumulado={handleUpdateUserAcumulado}
+              onSyncSheets={handleSyncSheets}
+              isSyncingSheets={isSyncingSheets}
+              withdrawalRequests={withdrawalRequests}
+              onApproveWithdrawal={handleApproveWithdrawal}
+              onNavigateToSolicitudes={() => setCurrentTab('solicitudes')}
+              onSwitchUser={(user) => {
+                setCurrentUser(user);
+                addToast(`Sesión cambiada a ${user.name} (Nivel ${user.level || 1})`, 'info');
+              }}
             />
           )}
         </main>

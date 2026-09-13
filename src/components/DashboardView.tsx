@@ -13,24 +13,32 @@ import {
   Users,
   Award,
   ChevronRight,
-  Bot
+  Bot,
+  Table,
+  RefreshCw,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface DashboardViewProps {
   currentUser: User;
   onNavigate: (tab: ViewTab) => void;
   onUpgradeLevel?: () => void;
+  onSyncSheets?: () => void;
+  isSyncingSheets?: boolean;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   currentUser,
   onNavigate,
-  onUpgradeLevel
+  onUpgradeLevel,
+  onSyncSheets,
+  isSyncingSheets = false
 }) => {
   const firstName = currentUser.name.split(' ')[0] || currentUser.name;
   const userLevel = (currentUser.level || 1) as UserLevel;
   const surveyCommission = SURVEY_REWARDS_BY_LEVEL[userLevel] || 2000;
   const taskCommission = TASK_REWARDS_BY_LEVEL[userLevel] || 5000;
+  const acumulado = currentUser.acumulado !== undefined ? currentUser.acumulado : currentUser.balance;
 
   const levelBadges: Record<UserLevel, { label: string; bg: string; text: string; next?: string; border: string }> = {
     1: { label: 'Nivel 1 (Bronce)', bg: 'bg-amber-500/20', text: 'text-amber-300', next: 'Nivel 2', border: 'border-amber-500/30' },
@@ -38,8 +46,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     3: { label: 'Nivel 3 (Oro)', bg: 'bg-yellow-500/20', text: 'text-yellow-300', next: 'Nivel 4', border: 'border-yellow-500/30' },
     4: { label: 'Nivel 4 (VIP Diamante)', bg: 'bg-indigo-500/25', text: 'text-cyan-300', border: 'border-indigo-400/30' },
   };
-
-  const totalCompleted = (currentUser.surveysCompleted?.length || 0) + (currentUser.tasksCompleted?.length || 0);
 
   return (
     <div className="space-y-6">
@@ -56,6 +62,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Award className="w-3.5 h-3.5" />
               <span>{levelBadges[userLevel].label}</span>
             </div>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-full bg-emerald-900/60 text-emerald-200 border border-emerald-700/50">
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Acumulado: ${acumulado.toLocaleString('es-CO')} COP</span>
+            </div>
           </div>
 
           <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
@@ -63,7 +74,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </h2>
 
           <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-            Tu rango actual es <strong>Nivel {userLevel}</strong>. Ganas <strong>${surveyCommission.toLocaleString('es-CO')} COP</strong> por encuesta completada (generada con IA), <strong>${taskCommission.toLocaleString('es-CO')} COP</strong> por tarea, y <strong>$1.000 COP</strong> por cada amigo referido.
+            Tu rango actual es <strong>Nivel {userLevel}</strong>. Tu saldo acumulado vinculado a Google Sheets es de <strong>${acumulado.toLocaleString('es-CO')} COP</strong>. Ganas <strong>${surveyCommission.toLocaleString('es-CO')} COP</strong> por encuesta con IA, <strong>${taskCommission.toLocaleString('es-CO')} COP</strong> por tarea, y <strong>$1.000 COP</strong> por cada amigo referido.
           </p>
 
           {/* 3 Forms to Earn Money Buttons */}
@@ -129,23 +140,82 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 4 Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition-colors">
-          <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center text-xl shrink-0">
-            <Wallet className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">
-              Saldo Disponible
+      {/* Main Financial Balance Cards: Saldo Acumulado (Google Sheets) & Saldo Disponible */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Saldo Acumulado Google Sheets */}
+        <div className="bg-linear-to-br from-emerald-500 to-teal-700 text-white p-5 rounded-2xl shadow-lg relative overflow-hidden flex flex-col justify-between">
+          <div className="flex items-start justify-between relative z-10">
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-white/20 text-white text-[11px] font-black rounded-full backdrop-blur-xs">
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Columna Acumulado (Google Sheets)</span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-black mt-2">
+                ${acumulado.toLocaleString('es-CO')} COP
+              </div>
+              <p className="text-xs text-emerald-100 mt-1">
+                Saldo total acumulado vinculado directamente con tu fila en Google Sheets.
+              </p>
             </div>
-            <div className="text-xl font-black text-slate-900 mt-0.5">
-              ${currentUser.balance.toLocaleString('es-CO')} COP
-            </div>
+
+            {onSyncSheets && (
+              <button
+                onClick={onSyncSheets}
+                disabled={isSyncingSheets}
+                title="Sincronizar con Google Sheets ahora"
+                className="p-2.5 bg-white/20 hover:bg-white/30 text-white rounded-xl backdrop-blur-xs transition-all cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+              </button>
+            )}
           </div>
+
+          <div className="mt-4 pt-3 border-t border-white/20 flex flex-wrap items-center justify-between text-[11px] text-emerald-100 relative z-10">
+            <span>Usuario: <strong>{currentUser.email}</strong></span>
+            <span>Nivel en Hoja: <strong>Nivel {userLevel}</strong></span>
+          </div>
+
+          <Table className="w-36 h-36 text-white/10 absolute -right-6 -bottom-6 pointer-events-none" />
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition-colors">
+        {/* Saldo Disponible para Retiro */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-slate-100 text-slate-700 text-[11px] font-black rounded-full">
+                <Wallet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Saldo Disponible para Retiro</span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-black text-slate-900 mt-2">
+                ${currentUser.balance.toLocaleString('es-CO')} COP
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Disponible de inmediato para transferir a tu Llave Bre-B (Breve).
+              </p>
+            </div>
+
+            <button
+              onClick={() => onNavigate('retiros')}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <HandCoins className="w-4 h-4" />
+              <span>Solicitar Retiro</span>
+            </button>
+          </div>
+
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+            <span>Método de destino único: <strong>Llave Bre-B</strong></span>
+            <span>Total Retirado: <strong>${(currentUser.withdrawn || 0).toLocaleString('es-CO')} COP</strong></span>
+          </div>
+        </div>
+      </div>
+
+      {/* 3 Secondary Activity Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div
+          onClick={() => onNavigate('encuestas')}
+          className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4 hover:border-indigo-300 transition-all cursor-pointer"
+        >
           <div className="w-12 h-12 bg-indigo-100 text-indigo-700 rounded-xl flex items-center justify-center text-xl shrink-0">
             <ClipboardList className="w-6 h-6" />
           </div>
@@ -156,11 +226,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="text-xl font-black text-slate-900 mt-0.5">
               {currentUser.surveysCompleted?.length || 0}
             </div>
+            <div className="text-[10px] text-indigo-600 font-bold mt-0.5">
+              Paga ${surveyCommission.toLocaleString('es-CO')} c/u
+            </div>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition-colors">
-          <div className="w-12 h-12 bg-purple-100 text-purple-700 rounded-xl flex items-center justify-center text-xl shrink-0">
+        <div
+          onClick={() => onNavigate('tareas')}
+          className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4 hover:border-emerald-300 transition-all cursor-pointer"
+        >
+          <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-xl flex items-center justify-center text-xl shrink-0">
             <CheckCircle2 className="w-6 h-6" />
           </div>
           <div>
@@ -170,10 +246,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="text-xl font-black text-slate-900 mt-0.5">
               {currentUser.tasksCompleted?.length || 0}
             </div>
+            <div className="text-[10px] text-emerald-600 font-bold mt-0.5">
+              Paga ${taskCommission.toLocaleString('es-CO')} c/u
+            </div>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4 hover:border-slate-300 transition-colors">
+        <div
+          onClick={() => onNavigate('referidos')}
+          className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-4 hover:border-amber-300 transition-all cursor-pointer"
+        >
           <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-xl flex items-center justify-center text-xl shrink-0">
             <Users className="w-6 h-6" />
           </div>
@@ -183,6 +265,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
             <div className="text-xl font-black text-amber-600 mt-0.5">
               {currentUser.referralCount || 0}
+            </div>
+            <div className="text-[10px] text-amber-700 font-bold mt-0.5">
+              +${((currentUser.referralCount || 0) * 1000).toLocaleString('es-CO')} COP ganados
             </div>
           </div>
         </div>

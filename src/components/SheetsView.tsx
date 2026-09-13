@@ -1,15 +1,24 @@
 import React, { useState, useEffect } from 'react';
+import { User, UserLevel } from '../types';
 import { APPS_SCRIPT_TEMPLATE } from '../data/initialData';
-import { Table, Copy, Check, Save, Radio, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Table, Copy, Check, Save, Radio, ExternalLink, ShieldCheck, CheckCircle2, RefreshCw, FileSpreadsheet, Sparkles } from 'lucide-react';
 
 interface SheetsViewProps {
+  users: User[];
   onSuccessToast: (msg: string) => void;
   onErrorToast: (msg: string) => void;
+  onSyncSheets?: () => void;
+  isSyncingSheets?: boolean;
+  onUpdateUserAcumulado?: (userId: string | number, newAcumulado: number) => void;
 }
 
 export const SheetsView: React.FC<SheetsViewProps> = ({
+  users,
   onSuccessToast,
-  onErrorToast
+  onErrorToast,
+  onSyncSheets,
+  isSyncingSheets = false,
+  onUpdateUserAcumulado
 }) => {
   const [scriptUrl, setScriptUrl] = useState('');
   const [isConnected, setIsConnected] = useState(false);
@@ -37,13 +46,16 @@ export const SheetsView: React.FC<SheetsViewProps> = ({
 
     setIsTesting(true);
     try {
-      // Test GET or no-cors POST
-      const res = await fetch(scriptUrl.trim(), { method: 'GET', mode: 'no-cors' });
+      if (onSyncSheets) {
+        await onSyncSheets();
+      } else {
+        await fetch(scriptUrl.trim(), { method: 'GET', mode: 'no-cors' });
+      }
       setIsConnected(true);
       onSuccessToast('Petición enviada exitosamente a Google Apps Script');
     } catch (err) {
       console.error(err);
-      onSuccessToast('URL configurada para transmisión no-cors');
+      onSuccessToast('URL configurada para transmisión activa');
     } finally {
       setIsTesting(false);
     }
@@ -62,18 +74,33 @@ export const SheetsView: React.FC<SheetsViewProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Overview Card */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-6">
-        <div>
-          <span className="px-3 py-1 bg-emerald-100 text-emerald-800 font-bold text-xs rounded-full">
-            Base de Datos en la Nube
-          </span>
-          <h2 className="text-2xl font-black text-slate-900 mt-2 tracking-tight">
-            Conectar con Google Sheets (Hoja 1 = Usuarios)
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed max-w-3xl">
-            Sincroniza tus usuarios, encuestas, tareas y solicitudes de retiro en tu propia hoja de cálculo de Google Sheets. 
-            <strong> La Hoja 1 se renombrará automáticamente a &quot;Usuarios&quot;</strong> y contendrá la tabla principal con el usuario Administrador precreado.
-          </p>
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 font-bold text-xs rounded-full">
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Base de Datos Vinculada en la Nube</span>
+            </div>
+            <h2 className="text-2xl font-black text-slate-900 mt-2 tracking-tight">
+              Conexión Google Sheets: Hoja &quot;Usuarios&quot; (Número de Nequi y Saldo Acumulado)
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed max-w-3xl">
+              La tabla de usuarios incluye la columna <strong>Número de Nequi</strong> con los números de llave de Nequi de cada usuario, y en la columna <strong>Saldo</strong> se muestra el saldo acumulado de cada usuario.
+              Si en Google Sheets el <strong>Usuario 1</strong> tiene <strong>$80.000 COP</strong> en la columna <em>Saldo</em> / <em>Acumulado</em>, ese valor se refleja en la plataforma junto a su llave Nequi ({users.find(u => u.email === 'usuario1@ganapro.com')?.phone || '312 456 7890'}).
+            </p>
+          </div>
+
+          {onSyncSheets && (
+            <button
+              onClick={onSyncSheets}
+              disabled={isSyncingSheets}
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncingSheets ? 'animate-spin' : ''}`} />
+              <span>{isSyncingSheets ? 'Sincronizando...' : 'Sincronizar con Google Sheets'}</span>
+            </button>
+          )}
         </div>
 
         {/* Input Web App URL */}
@@ -114,13 +141,98 @@ export const SheetsView: React.FC<SheetsViewProps> = ({
             />
             <span className={isConnected ? 'text-emerald-700 font-bold' : 'text-slate-500'}>
               {isConnected
-                ? 'Conectado a Google Apps Script Web App (Transmisión activa)'
-                : 'Modo Almacenamiento Local (Sin conectar a Apps Script aún)'}
+                ? 'Conectado a Google Apps Script Web App (Transmisión y Lectura Activa)'
+                : 'Modo Almacenamiento Local (Ingresa tu URL para conectar a tu hoja en vivo)'}
             </span>
           </div>
         </div>
 
-        {/* Instrucciones */}
+        {/* Live Structure Preview of Google Sheets Table */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Table className="w-4 h-4 text-emerald-600" />
+                <span>Estructura de la Hoja 1 (&quot;Usuarios&quot;) en Google Sheets</span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                Así es exactamente como se organizan las columnas en tu hoja de cálculo, con <strong>Número de Nequi</strong> y <strong>Saldo</strong> mostrando el saldo acumulado:
+              </p>
+            </div>
+            <span className="text-[11px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-lg font-mono">
+              10 Columnas
+            </span>
+          </div>
+
+          <div className="overflow-x-auto custom-scrollbar border border-slate-200 rounded-xl">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-800 text-white text-[11px] font-bold uppercase tracking-wider">
+                <tr>
+                  <th className="py-2.5 px-3">Fecha</th>
+                  <th className="py-2.5 px-3">Nombre</th>
+                  <th className="py-2.5 px-3">Email</th>
+                  <th className="py-2.5 px-3">Password</th>
+                  <th className="py-2.5 px-3">MetodoPago</th>
+                  <th className="py-2.5 px-3 bg-emerald-950 text-emerald-300 border-x border-emerald-800">
+                    Número de Nequi 📱
+                  </th>
+                  <th className="py-2.5 px-3 bg-emerald-900 text-emerald-200">
+                    Saldo (Acumulado) 💰
+                  </th>
+                  <th className="py-2.5 px-3">Rol</th>
+                  <th className="py-2.5 px-3 bg-indigo-900 text-cyan-200 border-x border-indigo-700">
+                    Nivel ⭐
+                  </th>
+                  <th className="py-2.5 px-3 bg-emerald-900 text-emerald-200">
+                    Acumulado 💰
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {users.map((u) => {
+                  const userAcumulado = u.acumulado !== undefined ? u.acumulado : u.balance || 0;
+                  const nequiKey = u.phone || '312 000 0000';
+                  return (
+                    <tr key={u.id} className="hover:bg-slate-50 font-mono text-[11px]">
+                      <td className="py-2.5 px-3 text-slate-500">
+                        12/09/2026
+                      </td>
+                      <td className="py-2.5 px-3 font-bold font-sans text-slate-900">
+                        {u.name}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600">
+                        {u.email}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-400">
+                        ••••
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600">
+                        {u.paymentMethod || 'Llave Bre-B'}
+                      </td>
+                      <td className="py-2.5 px-3 font-bold text-emerald-800 bg-emerald-50/80 border-x border-emerald-100">
+                        {nequiKey}
+                      </td>
+                      <td className="py-2.5 px-3 text-emerald-700 font-extrabold bg-emerald-50/50">
+                        ${userAcumulado.toLocaleString('es-CO')}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600">
+                        {u.role === 'admin' ? 'Admin' : 'Usuario'}
+                      </td>
+                      <td className="py-2.5 px-3 font-black text-indigo-700 bg-indigo-50/50 border-x border-indigo-100">
+                        Nivel {u.level || 1}
+                      </td>
+                      <td className="py-2.5 px-3 font-black text-emerald-700 bg-emerald-50/60">
+                        ${userAcumulado.toLocaleString('es-CO')} COP
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Instrucciones de Despliegue */}
         <div className="space-y-4">
           <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
@@ -145,13 +257,13 @@ export const SheetsView: React.FC<SheetsViewProps> = ({
               <strong>Extensiones &gt; Apps Script</strong>.
             </li>
             <li>
-              Borra todo el contenido de <code>Código.gs</code>, pega el script de abajo y presiona <strong>Guardar</strong>.
+              Borra todo el contenido de <code>Código.gs</code>, pega el script actualizado de abajo y presiona <strong>Guardar</strong>.
             </li>
             <li>
               Haz clic en <strong>Desplegar &gt; Nuevo despliegue</strong>, selecciona tipo <strong>Aplicación web</strong>, configura &quot;Quién tiene acceso&quot; en <strong>Cualquier usuario</strong> y copia la URL terminada en <code>/exec</code>.
             </li>
             <li>
-              Pega la URL aquí arriba y haz clic en <strong>Guardar URL</strong>. ¡Listo!
+              Pega la URL arriba y haz clic en <strong>Guardar URL</strong>. ¡Tu tabla creará automáticamente la columna <strong>Número de Nequi</strong> y mostrará el saldo acumulado en <strong>Saldo</strong>!
             </li>
           </ol>
 
@@ -160,7 +272,7 @@ export const SheetsView: React.FC<SheetsViewProps> = ({
             <div className="flex items-center justify-between px-4 py-2.5 bg-slate-800 text-slate-200 rounded-t-2xl text-xs font-semibold">
               <span className="flex items-center gap-2">
                 <Table className="w-4 h-4 text-emerald-400" />
-                <span>Código Apps Script (Hoja 1 = Usuarios Auto-Setup)</span>
+                <span>Código Google Apps Script (Columna Número de Nequi y Saldo Acumulado)</span>
               </span>
               <button
                 onClick={handleCopyCode}
@@ -188,3 +300,4 @@ export const SheetsView: React.FC<SheetsViewProps> = ({
     </div>
   );
 };
+
